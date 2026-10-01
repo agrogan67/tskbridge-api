@@ -1010,3 +1010,34 @@ And added a comment to explain:
 **Last Updated:** 2026-09-30  
 **Author:** GitHub Copilot (prompted by agrogan67)  
 **Review Status:** ✅ Reviewed and corrected for production use
+
+---
+
+## Additional Prompt: Repository Copilot Instructions
+
+**Feature Used:** GitHub Copilot Chat
+**Purpose:** Define consistent repository-wide technology, architecture, coding, security, and testing guidance.
+
+**Exact Prompt Text:**
+```
+Create .github/copilot-instructions.md for this repository.
+
+Follow the TaskBridge assessment requirements exactly.
+
+The file must define:
+- the technology stack
+- architecture conventions for a multi-service layout
+- coding standards
+- security rules relevant to a multi-tenant B2B SaaS context
+- authentication and authorization expectations
+- data exposure protections
+- testing expectations
+
+Make the instructions comprehensive enough that any developer using Copilot on this repository will receive consistent, standards-compliant output.
+
+Do not write any feature implementation code yet.
+Do not modify the Project Service yet.
+Do not create the Notification & Audit Service yet.
+
+Save the Copilot prompt used for this task so it can later be documented in PROMPTS.md.
+```
