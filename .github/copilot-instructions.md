@@ -10,6 +10,12 @@ Copilot must prioritize consistency, maintainability, security, and correctness 
 
 ---
 
+## Educational Project Context
+
+This repository's practical application is to create a clear, structured report that analyzes how much homework a student completes on a monthly schedule. The system stores homework completion data in a database and makes this information accessible through a web API for educators and families to track student progress and accountability.
+
+---
+
 # Current Scope Restrictions
 
 The following constraints are mandatory:
@@ -101,3 +107,4 @@ Service
  ├─ Domain
  ├─ Infrastructure
  └─ Tests
+```
