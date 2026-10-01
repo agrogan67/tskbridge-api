@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-Use these instructions for all code, tests, and documentation generated for this repository. Treat `/home/runner/work/tskbridge-api/tskbridge-api/SPEC.md` and the existing repository behavior as the source of truth for product requirements. The project handles educational records in a multi-tenant environment; design for privacy, tenant isolation, and auditability from the start. Do not implement features or create services unless specifically requested, and do not expand a task into unrelated refactoring.
+Use these instructions for all code, tests, and documentation generated for this repository. Treat `SPEC.md` and the existing repository behavior as the source of truth for product requirements. The project handles educational records in a multi-tenant environment; design for privacy, tenant isolation, and auditability from the start. Do not implement features or create services unless specifically requested, and do not expand a task into unrelated refactoring.
 
 ## Technology stack
 
