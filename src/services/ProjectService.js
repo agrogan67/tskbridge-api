@@ -89,7 +89,11 @@ class ProjectService {
    * @throws {ValidationError} If the input is invalid.
    * @throws {DatabaseError} If persistence fails.
    */
-  async create({ name, description, teamId } = {}, tenantId) {
+  async create(input = {}, tenantId) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new ValidationError('Invalid project input', ['input']);
+    }
+    const { name, description, teamId } = input;
     logger.debug('ProjectService.create', { tenantId, teamId });
     validateUuid(tenantId, 'tenantId');
     validateUuid(teamId, 'teamId');
@@ -165,7 +169,11 @@ class ProjectService {
    * @throws {ValidationError} If identifiers or pagination values are invalid.
    * @throws {DatabaseError} If persistence fails.
    */
-  async getByTeam(teamId, tenantId, { page = 1, limit = 50 } = {}) {
+  async getByTeam(teamId, tenantId, pagination = {}) {
+    if (!pagination || typeof pagination !== 'object' || Array.isArray(pagination)) {
+      throw new ValidationError('Invalid pagination options', ['pagination']);
+    }
+    const { page = 1, limit = 50 } = pagination;
     logger.debug('ProjectService.getByTeam', { teamId, tenantId, page, limit });
     validateUuid(teamId, 'teamId');
     validateUuid(tenantId, 'tenantId');
