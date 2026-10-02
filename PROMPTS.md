@@ -1010,3 +1010,16 @@ And added a comment to explain:
 **Last Updated:** 2026-09-30  
 **Author:** GitHub Copilot (prompted by agrogan67)  
 **Review Status:** ✅ Reviewed and corrected for production use
+
+---
+
+## Prompt 9: Notification & Audit Service Specification Revision
+
+**Feature Used:** GitHub Copilot Chat (repository-aware task conversation)
+
+**Prompting Technique:** Constraint-based prompting with repository context and iterative refinement. The prompt explicitly limited changes to existing documentation files, specified required models/contracts/security content, and prohibited implementation changes and commits.
+
+**User Prompt:**
+> In the repository agrogan67/tskbridge-api, update the EXISTING SPEC.md. Do not create a new file. Rewrite SPEC.md as a 1–2 page technical specification specifically for the Notification & Audit Service. Include an Audit Log model with field types; a Notification model with field types; API contracts with request and response shapes; integration points with the existing Project Service; audit immutability; authorization and multi-tenant isolation; validation rules; and a section explaining where GitHub Copilot helped draft/refine the specification and where human judgment was used. Preserve any existing content that is accurate and relevant. Also update the EXISTING PROMPTS.md to record this prompt and the Copilot feature/prompting technique used. Do not modify implementation code. Do not commit anything.
+
+**Human Review:** Human judgment was used to remove Project Service-specific implementation detail, retain relevant educational and multi-tenant context, respect the repository's independent-service and PostgreSQL guidance, and label undecided event and audience contracts as assumptions for service-owner confirmation.
