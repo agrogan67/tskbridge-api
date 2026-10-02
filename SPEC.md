@@ -2,421 +2,306 @@
 
 ## 1. Overview
 
-TskBridge API is a multi-tenant homework tracking and reporting system for educational institutions. This specification defines the data models, API contracts, integration points, and constraints for the Project Service component, which manages homework projects assigned to students within a school/team context.
+TskBridge API is a web app that tracks and reports homework completed by students in a monthly schedule. Student homework assignments are stored in a database and accessed through a simple web API. The system must maintain an audit trail of all changes for compliance.
 
 ---
 
 ## 2. Data Models
 
-### 2.1 Project Entity
+### 2.1 Projects (Homework Assignments)
 
 **Table Name**: `projects`
 
-| Field | Type | Constraints | Description |
-|-------|------|-----------|-------------|
-| `id` | VARCHAR(36) | PRIMARY KEY, NOT NULL | UUID v4 generated client-side |
-| `name` | VARCHAR(255) | NOT NULL | Project/assignment name (e.g., "Math Chapter 5 Homework") |
-| `description` | TEXT | NULLABLE | Detailed project description, rubric, or instructions |
-| `team_id` | VARCHAR(36) | NOT NULL, FK | References `teams.id` (school/grade level/class) |
-| `status` | VARCHAR(50) | NOT NULL, DEFAULT 'ACTIVE' | Enum: ACTIVE, INACTIVE, ARCHIVED, ON_HOLD |
-| `created_at` | TIMESTAMP | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Audit timestamp |
-| `updated_at` | TIMESTAMP | NOT NULL, DEFAULT CURRENT_TIMESTAMP ON UPDATE | Audit timestamp |
-| `deleted_at` | TIMESTAMP | NULLABLE | Soft delete marker for compliance/recovery |
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | VARCHAR(36) | Unique ID (UUID v4) |
+| `name` | VARCHAR(255) | Assignment name (e.g., "Math Chapter 5") |
+| `description` | TEXT | Assignment details and instructions |
+| `team_id` | VARCHAR(36) | References the team/class this assignment belongs to |
+| `status` | VARCHAR(50) | ACTIVE, INACTIVE, ARCHIVED, or ON_HOLD |
+| `created_at` | TIMESTAMP | When created |
+| `updated_at` | TIMESTAMP | When last changed |
+| `deleted_at` | TIMESTAMP | When deleted (soft delete only) |
 
 **Indexes**:
-```sql
-INDEX idx_team_id (team_id)              -- Filter projects by team
-INDEX idx_status (status)                -- Filter by status
-INDEX idx_deleted_at (deleted_at)       -- Exclude soft-deleted records
-INDEX idx_team_status (team_id, status) -- Common query pattern
-```
+- `idx_team_id (team_id)` - Find assignments by team
+- `idx_status (status)` - Filter by status
+- `idx_deleted_at (deleted_at)` - Exclude deleted records
 
-**Foreign Key**:
-```sql
-CONSTRAINT fk_team_id FOREIGN KEY (team_id) 
-  REFERENCES teams(id) ON DELETE CASCADE
-```
+### 2.2 Audit Log (Required for Compliance)
 
-### 2.2 Related Entities (External Services)
+**Table Name**: `audit_logs`
 
-#### Teams Table
-Required to exist in the same database. Represents school divisions, grades, or classes.
+Track all changes to assignments for compliance and reporting.
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | VARCHAR(36) | Primary key |
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | VARCHAR(36) | Unique ID |
+| `tenant_id` | VARCHAR(36) | Organization/school ID |
+| `project_id` | VARCHAR(36) | Assignment ID |
+| `user_id` | VARCHAR(36) | User who made the change |
+| `event_type` | VARCHAR(100) | What happened (e.g., CREATED, UPDATED, DELETED, STATUS_CHANGED) |
+| `entity_type` | VARCHAR(50) | Type of object changed (e.g., "Project") |
+| `previous_state` | JSON | Data before change |
+| `new_state` | JSON | Data after change |
+| `created_at` | TIMESTAMP | When change was made |
+
+**Key Rules**:
+- Audit entries **cannot** be modified or deleted
+- All queries must filter by `tenant_id` (no cross-organization access)
+- Immutable record of every action for compliance
+
+### 2.3 Notifications (Required for Team Communication)
+
+**Table Name**: `notifications`
+
+Notify team members when assignments are created, updated, or deleted.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | VARCHAR(36) | Unique ID |
+| `tenant_id` | VARCHAR(36) | Organization/school ID |
+| `user_id` | VARCHAR(36) | Who receives this notification |
+| `project_id` | VARCHAR(36) | Assignment this is about |
+| `event_type` | VARCHAR(100) | Type of event (CREATED, UPDATED, DELETED) |
+| `message` | TEXT | Human-readable description |
+| `read` | BOOLEAN | Has user read this? |
+| `created_at` | TIMESTAMP | When notification created |
+
+**Key Rules**:
+- Send to all team members except the person who made the change
+- Do not notify outside your organization
+- Keep it simple: one notification per event
+
+### 2.4 Teams (Existing - Required)
+
+Represents a class, grade, or school division.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | VARCHAR(36) | Unique ID |
 | `name` | VARCHAR(255) | Team/class name |
 | `school_id` | VARCHAR(36) | Links to institution |
-| `created_at` | TIMESTAMP | Audit |
-
-#### Expected Future Entities (Out of Scope for Project Service v1)
-- `project_submissions` - Student homework submissions
-- `project_rubrics` - Grading criteria
-- `project_grades` - Grades/feedback per student
-- `project_attachments` - Files, resources, rubrics
+| `created_at` | TIMESTAMP | When created |
 
 ---
 
-## 3. API Contract
+## 3. API Endpoints
 
-### Base URL
-```
-POST   /api/projects
-GET    /api/projects/:id
-GET    /api/projects/team/:teamId
-PUT    /api/projects/:id
-PATCH  /api/projects/:id/status
-DELETE /api/projects/:id
-POST   /api/projects/:id/restore
-```
+### 3.1 Projects API
 
-### 3.1 Create Project
-**Endpoint**: `POST /api/projects`
+**Base URL**: `/api/projects`
 
-**Request**:
-```json
-{
-  "name": "Chapter 5 Math Problems",
-  "description": "Complete problems 1-20 from textbook section 5.3",
-  "teamId": "team-uuid-123"
-}
-```
-
-**Validation Rules**:
-- `name`: Required, string, 1–255 characters, no leading/trailing whitespace
-- `description`: Optional, string, max 5000 characters
-- `teamId`: Required, string, must be valid UUID format, must reference existing team
-
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "proj-uuid-456",
+#### Create Assignment
+- **Endpoint**: `POST /api/projects`
+- **Request**:
+  ```json
+  {
     "name": "Chapter 5 Math Problems",
-    "description": "Complete problems 1-20 from textbook section 5.3",
-    "teamId": "team-uuid-123",
-    "status": "ACTIVE",
-    "createdAt": "2026-09-29T10:15:00.000Z",
-    "updatedAt": "2026-09-29T10:15:00.000Z",
-    "deletedAt": null
+    "description": "Complete problems 1-20",
+    "teamId": "team-uuid-123"
   }
-}
-```
-
-**Error Response** (400 Bad Request):
-```json
-{
-  "error": "Bad Request",
-  "message": "name and teamId are required"
-}
-```
-
-**Error Response** (500 Internal Server Error):
-```json
-{
-  "error": "Internal Server Error",
-  "message": "Failed to create project"
-}
-```
-
----
-
-### 3.2 Get Project by ID
-**Endpoint**: `GET /api/projects/:id`
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "proj-uuid-456",
-    "name": "Chapter 5 Math Problems",
-    "description": "Complete problems 1-20 from textbook section 5.3",
-    "teamId": "team-uuid-123",
-    "status": "ACTIVE",
-    "createdAt": "2026-09-29T10:15:00.000Z",
-    "updatedAt": "2026-09-29T10:15:00.000Z",
-    "deletedAt": null
-  }
-}
-```
-
-**Error Response** (404 Not Found):
-```json
-{
-  "error": "Not Found",
-  "message": "Project with ID proj-uuid-999 not found"
-}
-```
-
-**Constraint**: Excludes soft-deleted projects (deletedAt IS NOT NULL).
-
----
-
-### 3.3 Get Projects by Team
-**Endpoint**: `GET /api/projects/team/:teamId`
-
-**Query Parameters** (for future pagination):
-- `page`: integer, default 1
-- `limit`: integer, default 50, max 100
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": [
-    {
+  ```
+- **Response** (201 Created):
+  ```json
+  {
+    "success": true,
+    "data": {
       "id": "proj-uuid-456",
       "name": "Chapter 5 Math Problems",
-      "description": "Complete problems 1-20 from textbook section 5.3",
       "teamId": "team-uuid-123",
       "status": "ACTIVE",
-      "createdAt": "2026-09-29T10:15:00.000Z",
-      "updatedAt": "2026-09-29T10:15:00.000Z",
-      "deletedAt": null
+      "createdAt": "2026-09-29T10:15:00Z"
     }
-  ]
-}
-```
+  }
+  ```
 
-**Constraint**: Returns only active projects (deletedAt IS NULL), ordered by createdAt DESC.
+#### Get Assignment
+- **Endpoint**: `GET /api/projects/:id`
+- **Response** (200 OK): Returns assignment details
 
----
+#### List Team Assignments
+- **Endpoint**: `GET /api/projects/team/:teamId`
+- **Response** (200 OK): Returns all active assignments for the team
 
-### 3.4 Update Project
-**Endpoint**: `PUT /api/projects/:id`
+#### Update Assignment
+- **Endpoint**: `PUT /api/projects/:id`
+- **Request**: Any fields to update (`name`, `description`, `status`)
+- **Response** (200 OK): Returns updated assignment
 
-**Request**:
-```json
-{
-  "name": "Chapter 5 & 6 Math Problems",
-  "description": "Updated: include Chapter 6 problems 1-15",
-  "status": "ACTIVE"
-}
-```
+#### Change Status
+- **Endpoint**: `PATCH /api/projects/:id/status`
+- **Request**: `{ "status": "ARCHIVED" }`
+- **Valid Statuses**: ACTIVE, INACTIVE, ARCHIVED, ON_HOLD
 
-**Validation**: Same as create; allows partial updates (only provided fields updated).
+#### Delete Assignment (Soft Delete)
+- **Endpoint**: `DELETE /api/projects/:id`
+- **Response** (200 OK): Marks assignment as deleted (not removed from database)
 
-**Response** (200 OK): Returns updated project object.
-
----
-
-### 3.5 Update Project Status
-**Endpoint**: `PATCH /api/projects/:id/status`
-
-**Request**:
-```json
-{
-  "status": "ARCHIVED"
-}
-```
-
-**Valid Status Values**:
-- `ACTIVE` - Project is open and visible
-- `INACTIVE` - Project paused (e.g., class absent that day)
-- `ARCHIVED` - Project completed, hidden from active lists
-- `ON_HOLD` - Project deferred pending review
-
-**Response** (200 OK): Returns updated project.
-
-**Error Response** (400 Bad Request):
-```json
-{
-  "error": "Bad Request",
-  "message": "status must be one of: ACTIVE, INACTIVE, ARCHIVED, ON_HOLD"
-}
-```
+#### Restore Assignment
+- **Endpoint**: `POST /api/projects/:id/restore`
+- **Response** (200 OK): Un-deletes a previously deleted assignment
 
 ---
 
-### 3.6 Delete Project (Soft Delete)
-**Endpoint**: `DELETE /api/projects/:id`
+### 3.2 Audit Log API (Required for Compliance)
 
-**Request**: (no body)
+**Base URL**: `/api/audit`
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Project deleted successfully"
-}
-```
+#### Get Audit History for Project
+- **Endpoint**: `GET /api/audit/project/:projectId`
+- **Query Parameters**:
+  - `startDate` - Start of date range (ISO format)
+  - `endDate` - End of date range (ISO format)
+  - `eventType` - Filter by event type (optional)
+- **Response** (200 OK):
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "audit-1",
+        "projectId": "proj-123",
+        "userId": "user-456",
+        "eventType": "STATUS_CHANGED",
+        "entityType": "Project",
+        "previousState": { "status": "ACTIVE" },
+        "newState": { "status": "ARCHIVED" },
+        "createdAt": "2026-09-29T10:15:00Z"
+      }
+    ]
+  }
+  ```
 
-**Constraint**: Sets `deletedAt` to current timestamp; does not remove record. Deleted projects excluded from subsequent queries.
+#### Get Single Audit Entry
+- **Endpoint**: `GET /api/audit/:id`
+- **Response** (200 OK): Returns one audit log entry
 
----
-
-### 3.7 Restore Deleted Project
-**Endpoint**: `POST /api/projects/:id/restore`
-
-**Request**: (no body)
-
-**Response** (200 OK): Returns restored project with `deletedAt: null`.
-
----
-
-## 4. Integration Points
-
-### 4.1 Dependencies on External Services
-
-#### Teams Service (Required)
-- **Dependency**: Project.teamId must reference a valid team
-- **Integration**: Foreign key constraint `fk_team_id` ensures referential integrity
-- **Fallback**: Reject project creation if team_id does not exist (409 Conflict or 404 Not Found)
-- **Future**: Consider event-driven sync if teams deleted asynchronously
-
-#### Authentication Service (Required for Production)
-- **Integration**: All endpoints must validate JWT/session token
-- **Tenant Isolation**: Extract `tenant_id` from token; filter all queries by tenant
-- **Authorization**: Verify user role can manage projects for the specified team
-
-#### Submissions Service (Future Integration)
-- **Dependency**: Project may be referenced by `project_submissions` table
-- **Constraint**: Project cannot be deleted if submissions exist (business rule: return 409 Conflict)
-- **Cascade**: Consider ON DELETE behavior when defining submissions foreign key
-
-### 4.2 Event Publishing (Future)
-When Project Service reaches v2, emit events for:
-```javascript
-// Examples (not yet implemented)
-ProjectCreated { projectId, teamId, timestamp }
-ProjectStatusChanged { projectId, oldStatus, newStatus, timestamp }
-ProjectDeleted { projectId, timestamp }
-```
-
-Subscribe by: Submissions service, reporting service, notification service.
+**Key Requirements**:
+- All queries return only records for your organization
+- No cross-organization access
+- Audit records cannot be modified or deleted
 
 ---
 
-## 5. Constraints & Business Rules
+### 3.3 Notifications API (Required for Team Communication)
 
-### 5.1 Data Integrity
-- **UUID Format**: All IDs must be valid UUIDs (v4)
-- **Tenant Isolation**: Projects are always scoped to team_id; no cross-team queries
-- **Audit Trail**: `createdAt`, `updatedAt`, `deletedAt` are immutable after creation
-- **Foreign Key**: teamId must reference an existing team; cascade delete on team removal
+**Base URL**: `/api/notifications`
 
-### 5.2 Status Workflow
-```
-ACTIVE ──┬──> INACTIVE (pause)
-         ├──> ARCHIVED (complete)
-         └──> ON_HOLD (defer)
-INACTIVE ──> ACTIVE (resume)
-ARCHIVED ──> ACTIVE (unarchive, rare)
-ON_HOLD ──> ACTIVE (resume)
-```
+#### Get My Notifications
+- **Endpoint**: `GET /api/notifications`
+- **Response** (200 OK):
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "notif-1",
+        "projectId": "proj-123",
+        "eventType": "CREATED",
+        "message": "New assignment: Chapter 5 Math",
+        "read": false,
+        "createdAt": "2026-09-29T10:15:00Z"
+      }
+    ]
+  }
+  ```
 
-No invalid transitions; status updates are unrestricted (allow any transition for flexibility).
-
-### 5.3 Soft Delete & Compliance
-- **No Hard Delete**: Projects are soft-deleted to preserve audit trail (FERPA/educational compliance)
-- **Restore Window**: Deleted projects can be restored indefinitely
-- **Query Filtering**: All queries automatically exclude `deletedAt IS NOT NULL` records
-- **Reporting**: Deleted projects may still appear in historical/archived reports (requires separate query with deleted_at NOT NULL)
-
-### 5.4 Performance & Scalability
-- **Connection Pool**: 10 concurrent MySQL connections
-- **Query Timeout**: 5-second default timeout for all queries
-- **Pagination**: Prepare for `GET /api/projects/team/:teamId?page=1&limit=50` (not yet enforced, but schema supports)
-- **Indexing Strategy**: Composite index on `(team_id, status)` for common filtering
-
-### 5.5 Validation & Error Handling
-- **Field Validation**: 
-  - `name`: 1–255 chars, trim whitespace, reject empty
-  - `description`: max 5000 chars
-  - `teamId`: valid UUID, must exist in teams table
-  - `status`: enum validation against allowed values
-- **HTTP Status Codes**:
-  - `200` - OK
-  - `201` - Created
-  - `400` - Bad Request (validation failed)
-  - `404` - Not Found
-  - `409` - Conflict (e.g., team doesn't exist, or project cannot be deleted due to submissions)
-  - `500` - Internal Server Error
-- **Error Message**: Consistent JSON format; no stack traces in production
-
-### 5.6 Rate Limiting (Recommended for Production)
-- Per-tenant rate limit: 1000 requests/hour
-- Per-user rate limit: 100 requests/hour
-- Burst allowance: 10 requests/second
-
-### 5.7 Timeouts & Resilience
-- **Database Query Timeout**: 5 seconds
-- **Connection Acquire Timeout**: 10 seconds
-- **Graceful Degradation**: If teams service unavailable, reject project creation with 503 Service Unavailable
+#### Mark Notification as Read
+- **Endpoint**: `PATCH /api/notifications/:id/read`
+- **Response** (200 OK): Marks notification as read
 
 ---
 
-## 6. Technical Constraints
+## 4. How It Works: Monthly Report
 
-### 6.1 Database
-- **MySQL Version**: 5.7 or later (supports JSON, triggers, foreign keys)
-- **Character Set**: UTF-8 for international student names
-- **Collation**: utf8mb4_unicode_ci for case-insensitive, emoji support
-- **Transactions**: Supported for multi-step operations (e.g., create project + emit event)
-
-### 6.2 API
-- **Request Size**: Max 1 MB payload
-- **Response Caching**: No caching (projects are mutable); every GET returns fresh data
-- **CORS**: Enable for partner institutions; restrict to known origins
-- **Content-Type**: `application/json` only
-
-### 6.3 Authentication & Security
-- **Token Expiry**: JWT expires in 1 hour (refresh token for longer sessions)
-- **PII Handling**: Never log `description` field if it contains student names
-- **TLS**: HTTPS only in production
-- **SQL Injection**: Parameterized queries (mysql2 native prepared statements)
+1. **Teacher creates homework assignments** → Stored in `projects` table
+2. **System logs the creation** → Entry added to `audit_logs`
+3. **Team members are notified** → Notification added to `notifications` table
+4. **Report shows monthly activity** → Query projects filtered by date range and status
+5. **Compliance audit trail** → Complete history in `audit_logs` for record-keeping
 
 ---
 
-## 7. Non-Functional Requirements
+## 5. Data Safety & Compliance
 
-| Attribute | Target | Notes |
-|-----------|--------|-------|
-| Availability | 99.5% uptime | Excludes scheduled maintenance |
-| Latency (p95) | <200ms | For single project lookup |
-| Throughput | 1000 RPS per instance | With connection pooling |
-| Storage | ~100 bytes per project + description | Scales linearly |
-| Recovery Time Objective (RTO) | 1 hour | Database replication/failover |
-| Recovery Point Objective (RPO) | 5 minutes | Hourly backups minimum |
+### Soft Delete (No Hard Deletes)
+- Deleted assignments are marked with `deleted_at` timestamp
+- Data is never removed from database
+- Teachers can restore deleted assignments
+- Complete history preserved for compliance
 
----
+### Audit Trail (Required)
+- Every change (create, update, delete, status change) is logged
+- Audit logs cannot be modified or deleted
+- Shows who made the change, when, and what changed
+- Used for compliance reports and investigating issues
 
-## 8. Deployment & Operations
-
-### 8.1 Versioning
-- API Version: v1 (implicit in `/api/projects`)
-- Database Migrations: Track in `src/database/migrations/` with timestamps
-- Breaking Changes: Require new API version (e.g., `/api/v2/projects`)
-
-### 8.2 Monitoring
-- Log all errors with requestId for tracing
-- Track API response times (latency distribution)
-- Monitor database connection pool utilization
-- Alert on error rate > 1% or p95 latency > 500ms
-
-### 8.3 Rollback Strategy
-- Database migrations are backward-compatible (additive only)
-- API changes deployed with blue-green strategy
-- Soft deletes allow safe data recovery if rollback needed
+### Team Isolation
+- Each organization sees only their own data
+- Users cannot access other organizations' assignments or audit logs
+- Enforced at database level and API level
 
 ---
 
-## 9. Future Enhancements (Out of Scope v1)
+## 6. Technical Requirements
 
-- [ ] Project templates for recurring assignments
-- [ ] Bulk project operations (create multiple for a team)
-- [ ] Project attachments/resources (PDFs, videos, URLs)
-- [ ] Due dates and deadline tracking
-- [ ] Project rubrics and grading criteria
+### Database
+- **MySQL** 5.7 or later
+- **Character Set**: UTF-8 (supports international names)
+- **Max Payload**: 1 MB per request
+- **Query Timeout**: 5 seconds
+
+### API
+- **Format**: JSON only
+- **Authentication**: Required on all endpoints (JWT or session token)
+- **HTTPS**: Required in production
+- **Rate Limiting**: Recommended (100-1000 requests per hour per user)
+
+### Security
+- All queries use parameterized statements (no SQL injection)
+- Soft delete only - no permanent data loss
+- Audit logs immutable and cannot be tampered with
+- All PII protected at database level
+
+---
+
+## 7. Validation Rules
+
+| Field | Rules |
+|-------|-------|
+| `name` | Required, 1-255 characters, no extra spaces |
+| `description` | Optional, max 5000 characters |
+| `teamId` | Required, must be valid UUID, must exist in teams table |
+| `status` | Must be one of: ACTIVE, INACTIVE, ARCHIVED, ON_HOLD |
+
+---
+
+## 8. Error Responses
+
+| Status | Message | Meaning |
+|--------|---------|---------|
+| 200 | OK | Success |
+| 201 | Created | Assignment created |
+| 400 | Bad Request | Invalid input (missing field, bad format) |
+| 404 | Not Found | Assignment doesn't exist |
+| 409 | Conflict | Team doesn't exist, or other business rule violated |
+| 500 | Internal Server Error | System error |
+
+---
+
+## 9. Future Improvements (Not Needed Yet)
+
+- [ ] Bulk operations (create multiple assignments at once)
+- [ ] Due dates and reminders
+- [ ] Grading rubrics
 - [ ] Student submission status tracking
-- [ ] Automatic status transitions (e.g., archive after due date)
 - [ ] Webhooks for external integrations
-- [ ] GraphQL endpoint alongside REST API
+- [ ] GraphQL endpoint
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: 2026-09-29  
-**Owner**: TskBridge API Team
+**Document Version**: 2.0 (Simplified)  
+**Last Updated**: 2026-10-02  
+**Owner**: TskBridge API Team  
+**Scope**: Basic homework tracking and monthly reporting with compliance audit trail
