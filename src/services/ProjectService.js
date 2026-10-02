@@ -23,9 +23,13 @@ class ProjectService {
    * @throws {ValidationError} If an input field is invalid.
    * @throws {DatabaseError} If persistence fails.
    */
-  async create({ name, description, teamId } = {}, tenantId) {
+  async create(request = {}, tenantId) {
     logger.debug('ProjectService.create', { tenantId });
     const fields = [];
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      throw new ValidationError('Invalid project data', ['request']);
+    }
+    const { name, description, teamId } = request;
     if (typeof tenantId !== 'string' || !tenantId.trim()) fields.push('tenantId');
     if (typeof name !== 'string' || !name.trim() || name.trim().length > 255) fields.push('name');
     if (description !== undefined && description !== null &&
@@ -82,11 +86,14 @@ class ProjectService {
    * @param {string} teamId - Team ID.
    * @param {string} tenantId - Owning tenant ID.
    * @param {{page?: number, limit?: number}} [options={}] - Pagination options.
-   * @returns {Promise<import('sequelize').Model[]> & {pagination: {page: number, limit: number, total: number}}} Paginated projects.
+   * @returns {Promise<{projects: import('sequelize').Model[], pagination: {page: number, limit: number, total: number}}>} Paginated projects.
    * @throws {ValidationError} If teamId, tenantId, or pagination options are invalid.
    * @throws {DatabaseError} If retrieval fails.
    */
   async getByTeam(teamId, tenantId, options = {}) {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      throw new ValidationError('Invalid pagination options', ['options']);
+    }
     const { page = 1, limit = 50 } = options;
     logger.debug('ProjectService.getByTeam', { teamId, tenantId, page, limit });
     if (typeof tenantId !== 'string' || !tenantId.trim()) {

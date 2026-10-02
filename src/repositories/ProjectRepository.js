@@ -94,7 +94,7 @@ class ProjectRepository {
 
     try {
       const result = await this.Project.findAndCountAll({
-        where: { teamId, tenantId },
+        where: { teamId, tenantId, status: Project.PROJECT_STATUSES.ACTIVE },
         limit: boundedLimit,
         offset: (page - 1) * boundedLimit,
         order: [['createdAt', 'DESC']]
